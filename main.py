@@ -290,7 +290,7 @@ def access_control():
     # Fetch all access configs
     access_docs = list(access_col.find())
     people = list(people_col.find({}, {"name": 1}))  # only get names
-    cameras = sorted({d["camera_name"] for d in access_docs} | {"Camera_1", "Camera_2", "Camera_3"})
+    cameras = sorted({d["camera_name"] for d in access_docs} | {"Camera_1", "Camera_2", "Camera_3", "Entrance_Cam", "Lobby_Cam", "Webcam","cam4"})  # default cameras
     return render_template("access_control.html", access_docs=access_docs, people=people, cameras=cameras)
 
 
