@@ -17,6 +17,7 @@ import winsound
 import tkinter as tk
 from tkinter import messagebox
 import re
+from global_tracker import global_tracker # NEW: Import Global Tracker
 
 # --- Model and Device Configuration ---
 YOLO_WEIGHTS = "yolov11n.pt" 
@@ -274,10 +275,16 @@ def process_camera(source, cam_name, known_reload_interval=30):
                 info.pop("first_unknown_time", None)
 
             # ... rest of the function continues ...
+            # ... rest of the function continues ...
             if (frame_idx - info["last_reid_frame"]) >= REID_INTERVAL:
                 feat = extract_feature_from_crop(frame, (x1, y1, x2, y2))
                 info["last_reid_frame"] = frame_idx
                 if feat is not None:
+                    # --- NEW: Update Global Tracker ---
+                    global_id = global_tracker.update_track(cam_name, tid, feat, (x1, y1, x2, y2))
+                    info["global_id"] = global_id
+                    # ----------------------------------
+
                     name, role, dist, strong = match_person(feat, known_people)
                     new_conf = dist_to_conf(dist)
                     if info["name"] == "UNKNOWN":
@@ -301,6 +308,12 @@ def process_camera(source, cam_name, known_reload_interval=30):
                             if top_candidate != current_name and top_count >= CONSECUTIVE_UPDATES:
                                 rp = next((p for p in known_people if p["name"] == top_candidate), None)
                                 info.update({"name": top_candidate, "role": rp["role"] if rp else "", "conf": new_conf, "last_feat": feat.copy()})
+            
+            # Ensure global_id is set even if reid didn't run this frame (retrieve from tracker)
+            if "global_id" not in info:
+                gid = global_tracker.get_global_id(cam_name, tid)
+                if gid: info["global_id"] = gid
+            
             track_info[tid] = info
             
             is_certain_match = info["name"] and " (?)" not in info["name"] and info["name"] != "UNKNOWN"
@@ -312,7 +325,7 @@ def process_camera(source, cam_name, known_reload_interval=30):
             display_name = info["name"]
             color = (0, 200, 0) if " (?)" not in display_name and display_name != "UNKNOWN" else (0, 165, 255)
             if display_name == "UNKNOWN": color = (0, 0, 255)
-            label = f"{display_name}" + (f" ({info['role']})" if info.get("role") else "")
+            label = f"ID:{info.get('global_id', tid)} {display_name}" + (f" ({info['role']})" if info.get("role") else "")
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(frame, label, (x1, max(0, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
