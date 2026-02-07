@@ -1,6 +1,7 @@
 # app.py
 import os
 import cv2
+from audit_manager import audit_logger # NEW: Import Audit Logger
 import time
 import torch
 import threading
@@ -81,6 +82,12 @@ def trigger_alert(frame, cam_name, tid):
     os.makedirs("alert_snapshots", exist_ok=True)
     cv2.imwrite(snap_path, frame)
     threading.Thread(target=lambda: winsound.Beep(1000, 700), daemon=True).start()
+    
+    # --- NEW: Audit Log ---
+    audit_logger.log_event("ALERT_UNKNOWN", {"camera": cam_name, "track_id": tid, "snapshot": snap_path})
+    audit_logger.sign_file(snap_path)
+    # ----------------------
+    
     show_popup(cam_name, tid)
     
 def trigger_zone_alert(name, cam_name, frame, bbox):
@@ -96,6 +103,12 @@ def trigger_zone_alert(name, cam_name, frame, bbox):
         "status": "Unauthorized Zone Entry", "thumbnail": thumb_path
     })
     print(f" ZONE ALERT] {name} entered restricted camera: {cam_name} at {ts}")
+    
+    # --- NEW: Audit Log ---
+    audit_logger.log_event("ALERT_ZONE", {"person": name, "camera": cam_name, "thumbnail": thumb_path})
+    audit_logger.sign_file(thumb_path)
+    # ----------------------
+    
     threading.Thread(target=lambda: winsound.Beep(1200, 800), daemon=True).start()
     show_popup(cam_name, f"{name} - Unauthorized Access")
 
@@ -123,6 +136,13 @@ def log_person_event(name, cam_name, tid, frame, bbox):
         "timestamp": ts, "person_name": name, "camera_name": cam_name,
         "track_id": tid, "thumbnail": web_thumb_path
     })
+    
+    # --- NEW: Audit Log (Minimal entry for routine detections to avoid spam, or full if strict) ---
+    # We log the event reference.
+    audit_logger.log_event("PERSON_DETECTED", {"person": name, "camera": cam_name, "track_id": tid})
+    audit_logger.sign_file(thumb_path)
+    # ---------------------------------------------------------------------------------------------
+    
     print(f"📋 [DB] Logged {name} on {cam_name}, track {tid} at {ts}")
     
 def check_access_permission(person_name, cam_name, frame, bbox):

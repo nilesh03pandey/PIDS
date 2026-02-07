@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, send_file
+from audit_manager import audit_logger # NEW: Import Audit Logger
 from pymongo import MongoClient
 import os
 import cv2
@@ -108,6 +109,12 @@ def enroll():
         people_col.insert_one(record)
         print(f"[+] Enrolled {name} ({role}) with {len(features)} images")
 
+        # --- NEW: Audit Log ---
+        audit_logger.log_event("ENROLL_PERSON", {"name": name, "role": role})
+        for img_file in selected_images:
+             audit_logger.sign_file(os.path.join(CROP_FOLDER, img_file))
+        # ----------------------
+
         # Optional: move used crops to archive
         for img_file in selected_images:
             os.rename(os.path.join(CROP_FOLDER, img_file), f"crops/enrolled/{img_file}")
@@ -149,6 +156,10 @@ def edit_person(person_id):
             {"_id": ObjectId(person_id)},
             {"$set": {"name": name, "role": role, "images": new_image_paths}}
         )
+        
+        # --- NEW: Audit Log ---
+        audit_logger.log_event("EDIT_PERSON", {"person_id": person_id, "new_name": name, "new_role": role})
+        # ----------------------
         flash("Person updated successfully!", "success")
         return redirect(url_for("people"))
 
@@ -169,6 +180,10 @@ def delete_person(person_id):
             if os.path.exists(img_path):
                 os.remove(img_path)
         people_col.delete_one({"_id": ObjectId(person_id)})
+        
+        # --- NEW: Audit Log ---
+        audit_logger.log_event("DELETE_PERSON", {"person_id": person_id, "name": person.get("name")})
+        # ----------------------
         flash("Person deleted successfully!", "success")
     else:
         flash("Person not found.", "danger")
@@ -236,6 +251,10 @@ def history():
 def export_excel(name):
     logs = list(history_col.find({"person_name": {"$regex": f"^{name}$", "$options": "i"}})
                           .sort("timestamp", -1))
+
+    # --- NEW: Audit Log ---
+    audit_logger.log_event("DATA_EXPORT", {"type": "EXCEL", "subject": name})
+    # ----------------------
 
     if not logs:
         return "No records found", 404
@@ -308,6 +327,10 @@ def update_access_control():
         {"$set": {"allowed_people": allowed_people}},
         upsert=True
     )
+    
+    # --- NEW: Audit Log ---
+    audit_logger.log_event("UPDATE_ACCESS", {"camera": cam_name, "allowed": allowed_people})
+    # ----------------------
     flash(f"Access list updated for {cam_name}", "success")
     return redirect(url_for("access_control"))
 
