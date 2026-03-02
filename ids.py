@@ -18,32 +18,38 @@ import winsound
 import tkinter as tk
 from tkinter import messagebox
 import re
-from global_tracker import global_tracker # NEW: Import Global Tracker
+# --- Custom Modules ---
+# from audit_manager import audit_logger # REPLACED by AuditLedger
+from global_tracker import global_tracker 
+from pipeline import FrameGrabber, BenchmarkStats
 
-# --- Model and Device Configuration ---
-YOLO_WEIGHTS = "yolov11n.pt" 
+# NEW CORE MODULES
+from core.detectors.robust_yolo import RobustDetector
+from core.trackers.robust_tracker import RobustTracker
+from core.intelligence.quality_filter import QualityFilter
+from core.intelligence.appearance_gallery import GalleryManager
+from core.intelligence.behavior_engine import BehaviorEngine
+from core.forensics.audit_ledger import AuditLedger
+
+# --- Configuration ---
+# YOLO_WEIGHTS = "yolov11n.pt" # Handled by RobustDetector
 REID_MODEL_NAME = "osnet_x1_0"
 REID_MODEL_PATH = os.path.expanduser("~/.cache/torch/checkpoints/osnet_x1_0_imagenet.pth")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # --- NEW PERFORMANCE OPTIMIZATIONS ---
-# 1. Set a lower camera resolution to reduce the amount of data processed
 CAM_RESOLUTION_W = 640
 CAM_RESOLUTION_H = 480
-# 2. Tell YOLO to use a smaller image size for faster inference
-YOLO_INFERENCE_SIZE = 320
-# 3. Process video frames less frequently to reduce CPU/GPU load
 PROCESS_EVERY_N_FRAMES = 1
-# --- END PERFORMANCE OPTIMIZATIONS ---
 
 # --- Tuning Parameters ---
-STRICT_TH = 0.35      # Cosine distance for a strong match
-LOOSE_TH = 0.55       # Cosine distance for a weak match
-RATIO_MARGIN = 0.75   # Ratio test: best_dist / second_best_dist must be < this
-YOLO_CONF_TH = 0.4    # Detection confidence threshold
+STRICT_TH = 0.35      
+LOOSE_TH = 0.55       
+RATIO_MARGIN = 0.75   
+# YOLO_CONF_TH = 0.4 # Handled by RobustDetector
 
 # re-ID dynamic update params
-REID_INTERVAL = 5
+REID_INTERVAL = 3 # Increased frequency but filtered by QualityFilter
 MIN_CONF_ASSIGN = 0.55
 CONF_MARGIN = 0.18
 CONSECUTIVE_UPDATES = 3
@@ -62,18 +68,36 @@ history_col = db["track_history"]
 access_col = db["access_control"]
 alerts_col = db["alerts"]
 
-print(f"Using device: {DEVICE}") # <<<<<<<<<< CHECK THIS LINE IN YOUR TERMINAL!
-yolo_model = YOLO(YOLO_WEIGHTS)
-yolo_model.to(DEVICE)
+print(f"Using device: {DEVICE}")
 
+# Initialize Components
+audit_ledger = AuditLedger("secure_audit.jsonl")
+detector = RobustDetector(device=DEVICE)
+# feature extractor remains separate for now
 extractor = FeatureExtractor(
     model_name=REID_MODEL_NAME,
     model_path=REID_MODEL_PATH,
     device=DEVICE
 )
 
+# Zone Config (Dummy for now)
+ZONE_CONFIG = {
+    "RedZone": [100, 100, 300, 300] # x1, y1, x2, y2
+}
+
+
 # (All functions from trigger_alert to dist_to_conf remain exactly the same)
-# --- Alerting and Logging Functions (largely unchanged, but with small improvements) ---
+# --- Alerting and Logging Functions ---
+
+def play_aggressive_sound():
+    """Play a sequence of aggressive beeps to demand attention."""
+    def _beep():
+        for _ in range(5):
+            winsound.Beep(2000, 150) # High pitch, fast
+            time.sleep(0.05)
+            winsound.Beep(1500, 150)
+            time.sleep(0.05)
+    threading.Thread(target=_beep, daemon=True).start()
 
 def trigger_alert(frame, cam_name, tid):
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -81,11 +105,11 @@ def trigger_alert(frame, cam_name, tid):
     snap_path = f"alert_snapshots/{cam_name}_{tid}_{int(time.time())}.jpg"
     os.makedirs("alert_snapshots", exist_ok=True)
     cv2.imwrite(snap_path, frame)
-    threading.Thread(target=lambda: winsound.Beep(1000, 700), daemon=True).start()
     
-    # --- NEW: Audit Log ---
-    audit_logger.log_event("ALERT_UNKNOWN", {"camera": cam_name, "track_id": tid, "snapshot": snap_path})
-    audit_logger.sign_file(snap_path)
+    play_aggressive_sound() # LOUD ALERT
+    
+    # --- Crypto Audit ---
+    audit_ledger.log("ALERT_UNKNOWN", {"camera": cam_name, "track_id": tid, "snapshot": snap_path})
     # ----------------------
     
     show_popup(cam_name, tid)
@@ -102,14 +126,13 @@ def trigger_zone_alert(name, cam_name, frame, bbox):
         "timestamp": ts, "person_name": name, "camera_name": cam_name,
         "status": "Unauthorized Zone Entry", "thumbnail": thumb_path
     })
-    print(f" ZONE ALERT] {name} entered restricted camera: {cam_name} at {ts}")
+    print(f"🚫 [ZONE ALERT] {name} entered restricted camera: {cam_name} at {ts}")
     
-    # --- NEW: Audit Log ---
-    audit_logger.log_event("ALERT_ZONE", {"person": name, "camera": cam_name, "thumbnail": thumb_path})
-    audit_logger.sign_file(thumb_path)
+    # --- Crypto Audit ---
+    audit_ledger.log("ALERT_ZONE", {"person": name, "camera": cam_name, "thumbnail": thumb_path})
     # ----------------------
     
-    threading.Thread(target=lambda: winsound.Beep(1200, 800), daemon=True).start()
+    play_aggressive_sound() # LOUD ALERT
     show_popup(cam_name, f"{name} - Unauthorized Access")
 
 last_log_times = {}
@@ -137,11 +160,9 @@ def log_person_event(name, cam_name, tid, frame, bbox):
         "track_id": tid, "thumbnail": web_thumb_path
     })
     
-    # --- NEW: Audit Log (Minimal entry for routine detections to avoid spam, or full if strict) ---
-    # We log the event reference.
-    audit_logger.log_event("PERSON_DETECTED", {"person": name, "camera": cam_name, "track_id": tid})
-    audit_logger.sign_file(thumb_path)
-    # ---------------------------------------------------------------------------------------------
+    # --- Crypto Audit ---
+    audit_ledger.log("PERSON_DETECTED", {"person": name, "camera": cam_name, "track_id": tid})
+    # ----------------------
     
     print(f"📋 [DB] Logged {name} on {cam_name}, track {tid} at {ts}")
     
@@ -225,17 +246,21 @@ last_alert_time = {}  # ✅ FIX: initialize the dictionary globally
 
 
 def process_camera(source, cam_name, known_reload_interval=30):
-    global last_alert_time  # FIX: Add this line to use the global variable
+    global last_alert_time
 
     print(f"[{cam_name}] starting, source={source}")
     cap = cv2.VideoCapture(source)
-    
-    # MODIFIED: Set the desired camera resolution for performance
-    if isinstance(source, int): # Only set for webcams, not video files
+    if isinstance(source, int):
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_RESOLUTION_W)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_RESOLUTION_H)
 
-    tracker = DeepSort(max_age=30, n_init=2, nms_max_overlap=1.0, max_cosine_distance=0.3)
+    # Initialize Modules per camera
+    # RobustTracker wraps DeepSort with tuned params
+    tracker = RobustTracker(max_age=50, n_init=3) 
+    quality_filter = QualityFilter()
+    gallery = GalleryManager()
+    behavior = BehaviorEngine(zone_config=ZONE_CONFIG)
+    
     track_info = {}
     track_vote = defaultdict(lambda: deque(maxlen=CONSECUTIVE_UPDATES))
     known_people = load_known_people()
@@ -259,95 +284,117 @@ def process_camera(source, cam_name, known_reload_interval=30):
             known_people = load_known_people()
             last_known_load = time.time()
 
-        # MODIFIED: Pass the smaller inference size to the YOLO model
-        results = yolo_model(frame, verbose=False, classes=[0], imgsz=YOLO_INFERENCE_SIZE)
+        # 1. Robust Detection
+        # returns list of ([x,y,w,h], conf, cls)
+        detections = detector.detect(frame, img_size=320)
         
-        detections = []
-        for r in results[0].boxes:
-            conf = float(r.conf[0])
-            if conf >= YOLO_CONF_TH:
-                x1, y1, x2, y2 = map(int, r.xyxy[0])
-                w, h = x2 - x1, y2 - y1
-                if w < 20 or h < 40: continue
-                detections.append(([x1, y1, w, h], conf, 'person'))
-
-        tracks = tracker.update_tracks(detections, frame=frame)
-
+        # 2. Robust Tracking (ByteTrack style association)
+        # We pass full detections. Tracker handles high/low conf split if implemented, 
+        # or just standard DeepSort if using the wrapper.
+        tracks = tracker.update(detections, frame=frame)
+        
+        # 3. Behavior Analysis
+        events = behavior.update(tracks)
+        for event in events:
+            # Handle Events
+            if event['type'] == 'LOITERING':
+                # print(f"⚠️ [LOITER] Track {event['track_id']} in {event['zone']} for {event['duration']:.1f}s")
+                pass
+            elif event['type'] == 'ZONE_CHANGE':
+                # Check if entered a restricted zone
+                new_zone = event['to']
+                tid = event['track_id']
+                if new_zone != "General" and new_zone != "None":
+                     # Get identity
+                    info = track_info.get(tid)
+                    name = info["name"] if info else "UNKNOWN"
+                    print(f"🚫 [ZONE ENTRY] {name} entered {new_zone}")
+                    # We can use trigger_zone_alert but it needs bbox/frame.
+                    # We skip full alert for now or implement it if track confirms execution.
+                    pass
+                
+        # 4. Identity & Attributes
         for track in tracks:
             if not track.is_confirmed(): continue
             ltrb = track.to_ltrb()
             x1, y1, x2, y2 = [int(v) for v in ltrb]
             tid = track.track_id
+            
             info = track_info.get(tid, {
-                "name": "UNKNOWN", "role": "", "conf": 0.0, "last_feat": None,
+                "name": "UNKNOWN", "role": "", "conf": 0.0, 
                 "last_reid_frame": -999, "last_seen": time.time()
             })
             info["last_seen"] = time.time()
+
+            # --- INTELLIGENT RE-ID ---
+            # Instead of Re-ID every N frames blindly, check Quality.
             
-            # This is the section that was causing the error
+            # Check if we should update embedding
+            should_run_reid = (frame_idx - info["last_reid_frame"]) >= REID_INTERVAL
+            
+            feat = None
+            if should_run_reid:
+                # Quality Check
+                is_good, q_score = quality_filter.check(frame, (x1, y1, x2-x1, y2-y1))
+                if is_good:
+                    feat_raw = extract_feature_from_crop(frame, (x1, y1, x2, y2))
+                    if feat_raw is not None:
+                        # Update Gallery
+                        gallery.update(tid, feat_raw)
+                        info["last_reid_frame"] = frame_idx
+                        # Get best representative embedding for matching
+                        feat = gallery.get_embedding(tid)
+
+            # Match if we have a valid embedding (current or cached)
+            # If we didn't run ReID this frame, check if gallery has one
+            if feat is None:
+                feat = gallery.get_embedding(tid)
+            
+            if feat is not None:
+                # Global Tracker Update
+                global_id = global_tracker.update_track(cam_name, tid, feat, (x1, y1, x2, y2))
+                info["global_id"] = global_id
+
+                # Identity Matching
+                name, role, dist, strong = match_person(feat, known_people)
+                new_conf = dist_to_conf(dist)
+                
+                # Update Identity Logic (similar to before but using gallery feat)
+                if info["name"] == "UNKNOWN":
+                    if new_conf >= MIN_CONF_ASSIGN: 
+                        info.update({"name": name, "role": role, "conf": new_conf})
+                else:
+                    current_name, current_conf = info["name"], info["conf"]
+                    if name == current_name:
+                        info["conf"] = max(current_conf, new_conf)
+                    elif strong and new_conf > current_conf + CONF_MARGIN:
+                        info.update({"name": name, "role": role, "conf": new_conf})
+                        
+            # Alert Logic
             if info["name"] == "UNKNOWN":
                 elapsed = time.time() - info.setdefault("first_unknown_time", time.time())
-                # Now this line will work correctly
                 if elapsed >= 5 and time.time() - last_alert_time.get(cam_name, 0) > 10:
                     trigger_alert(frame, cam_name, tid)
                     last_alert_time[cam_name] = time.time()
             else:
                 info.pop("first_unknown_time", None)
-
-            # ... rest of the function continues ...
-            # ... rest of the function continues ...
-            if (frame_idx - info["last_reid_frame"]) >= REID_INTERVAL:
-                feat = extract_feature_from_crop(frame, (x1, y1, x2, y2))
-                info["last_reid_frame"] = frame_idx
-                if feat is not None:
-                    # --- NEW: Update Global Tracker ---
-                    global_id = global_tracker.update_track(cam_name, tid, feat, (x1, y1, x2, y2))
-                    info["global_id"] = global_id
-                    # ----------------------------------
-
-                    name, role, dist, strong = match_person(feat, known_people)
-                    new_conf = dist_to_conf(dist)
-                    if info["name"] == "UNKNOWN":
-                        if new_conf >= MIN_CONF_ASSIGN: info.update({"name": name, "role": role, "conf": new_conf, "last_feat": feat.copy()})
-                        elif name:
-                            track_vote[tid].append(name)
-                            if list(track_vote[tid]).count(name) >= CONSECUTIVE_UPDATES: info.update({"name": name, "role": role, "conf": new_conf, "last_feat": feat.copy()})
-                    else:
-                        current_name, current_conf = info["name"], info["conf"]
-                        if name == current_name:
-                            info["conf"] = max(current_conf, new_conf)
-                            info["last_feat"] = EMA_ALPHA_TRACK * info["last_feat"] + (1 - EMA_ALPHA_TRACK) * feat
-                            info["last_feat"] = l2norm(info["last_feat"])
-                        elif strong and new_conf > current_conf + CONF_MARGIN:
-                            info.update({"name": name, "role": role, "conf": new_conf, "last_feat": feat.copy()})
-                            track_vote[tid].clear()
-                        elif name:
-                            track_vote[tid].append(name)
-                            counts = {c: track_vote[tid].count(c) for c in set(track_vote[tid])}
-                            top_candidate, top_count = max(counts.items(), key=lambda x: x[1])
-                            if top_candidate != current_name and top_count >= CONSECUTIVE_UPDATES:
-                                rp = next((p for p in known_people if p["name"] == top_candidate), None)
-                                info.update({"name": top_candidate, "role": rp["role"] if rp else "", "conf": new_conf, "last_feat": feat.copy()})
-            
-            # Ensure global_id is set even if reid didn't run this frame (retrieve from tracker)
-            if "global_id" not in info:
-                gid = global_tracker.get_global_id(cam_name, tid)
-                if gid: info["global_id"] = gid
             
             track_info[tid] = info
-            
-            is_certain_match = info["name"] and " (?)" not in info["name"] and info["name"] != "UNKNOWN"
-            if is_certain_match:
-                bbox = (x1, y1, x2 - x1, y2 - y1)
-                log_person_event(info["name"], cam_name, tid, frame, bbox)
-                check_access_permission(info["name"], cam_name, frame, bbox)
-            
+
+            # Draw
             display_name = info["name"]
             color = (0, 200, 0) if " (?)" not in display_name and display_name != "UNKNOWN" else (0, 165, 255)
             if display_name == "UNKNOWN": color = (0, 0, 255)
-            label = f"ID:{info.get('global_id', tid)} {display_name}" + (f" ({info['role']})" if info.get("role") else "")
+            
+            label = f"{display_name}"
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(frame, label, (x1, max(0, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            
+            # Log specific person events
+            if display_name != "UNKNOWN" and " (?)" not in display_name:
+                bbox_wh = (x1, y1, x2-x1, y2-y1)
+                log_person_event(display_name, cam_name, tid, frame, bbox_wh)
+                check_access_permission(display_name, cam_name, frame, bbox_wh)
 
         with frames_lock:
             latest_frames[cam_name] = cv2.resize(frame, (TILE_W, TILE_H))

@@ -1,58 +1,118 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, send_file
-from audit_manager import audit_logger # NEW: Import Audit Logger
+# from audit_manager import audit_logger 
+from core.forensics.audit_ledger import AuditLedger
 from pymongo import MongoClient
 import os
 import cv2
 import torch
 import uuid
 import numpy as np
-from torchreid.utils import FeatureExtractor
+import threading
 from werkzeug.utils import secure_filename
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from bson.objectid import ObjectId
-from io import BytesIO
 import pandas as pd
-from reportlab.lib.pagesizes import letter
+from io import BytesIO
 from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
 from fpdf import FPDF
 
+# from face_engine import FaceEngine # REMOVED
+from torchreid.utils import FeatureExtractor
+from ultralytics import YOLO
 
-
-# Flask
 app = Flask(__name__)
-app.secret_key = "your_secret_key"
-
-UPLOAD_FOLDER = os.path.join(os.getcwd(), "uploads")
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.secret_key = "supersecretkey"
+UPLOAD_FOLDER = "static/uploads"
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# MongoDB
+# Initialize Audit Ledger
+audit_ledger = AuditLedger("secure_audit.jsonl")
+
+# Face Engine for Enrollment
+# We use the same engine as ids.py (YOLO + OSNet)
+# Initialize with default settings
+YOLO_WEIGHTS = "yolov11n.pt"
+REID_MODEL_NAME = "osnet_x1_0"
+REID_MODEL_PATH = os.path.expanduser("~/.cache/torch/checkpoints/osnet_x1_0_imagenet.pth")
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+print(f"[Main] Using device: {DEVICE}")
+
+yolo_model = YOLO(YOLO_WEIGHTS)
+yolo_model.to(DEVICE)
+
+extractor = FeatureExtractor(
+    model_name=REID_MODEL_NAME,
+    model_path=REID_MODEL_PATH,
+    device=DEVICE
+)
+
+CROP_FOLDER = "crops/unknown"
+
+# --- Database Setup ---
 client = MongoClient("mongodb://localhost:27017/")
 db = client["person_reid"]
 people_col = db["people"]
+logs_col = db["logs"]
 history_col = db["track_history"]
 access_col = db["access_control"]
 alerts_col = db["alerts"]
 
-now = datetime.now(ZoneInfo("Asia/Kolkata"))
-
-# Torchreid extractor
-extractor = FeatureExtractor(
-    model_name='osnet_x1_0',
-    model_path='C:/Users/adity/.cache/torch/checkpoints/osnet_x1_0_imagenet.pth',
-    device='cuda' if torch.cuda.is_available() else 'cpu'
-)
-
-CROP_FOLDER = "crops/unknown"
+def l2norm(v):
+    return v / (np.linalg.norm(v) + 1e-12)
 
 def extract_feature(img_path):
     img = cv2.imread(img_path)
     if img is None:
         return None
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    feat = extractor([img_rgb])
-    return feat[0].cpu().numpy()
+    
+    # 1. Detect Face (if full image)
+    # If the image is already a crop (e.g. from CROP_FOLDER), we might still want to check?
+    # But usually crops from ids.py are already "person" crops.
+    # However, for uploaded files, they might be full photos.
+    # Let's try to detect a person first.
+    
+    # Inference size similar to ids.py optimization?
+    # Or just use default for better accuracy during enrollment.
+    results = yolo_model(img, verbose=False, classes=[0]) # class 0 = person
+    
+    best_crop = None
+    
+    # Check if we found a person
+    if results and results[0].boxes:
+        # Find largest person
+        best_area = 0
+        for r in results[0].boxes:
+            x1, y1, x2, y2 = map(int, r.xyxy[0])
+            w, h = x2 - x1, y2 - y1
+            if w*h > best_area:
+                best_area = w*h
+                best_crop = img[y1:y2, x1:x2]
+    
+    # If no detection (or maybe it IS a crop), use the whole image?
+    # If it's from CROP_FOLDER, it is likely already a crop.
+    # But yolo on a tight crop might fail.
+    # Logic: if detection found, use best detection. Else, assume it's a crop.
+    
+    final_img = best_crop if best_crop is not None else img
+    
+    if final_img.size == 0: return None
+    
+    # 2. Extract Feature
+    # FeatureExtractor expects RGB list
+    img_rgb = cv2.cvtColor(final_img, cv2.COLOR_BGR2RGB)
+    
+    try:
+        with torch.no_grad():
+            feat_t = extractor([img_rgb])
+        feat = feat_t[0].cpu().numpy().flatten()
+        return l2norm(feat)
+    except Exception as e:
+        print(f"Error extracting feature: {e}")
+        return None
 
 @app.route("/")
 def dashboard():
@@ -110,9 +170,9 @@ def enroll():
         print(f"[+] Enrolled {name} ({role}) with {len(features)} images")
 
         # --- NEW: Audit Log ---
-        audit_logger.log_event("ENROLL_PERSON", {"name": name, "role": role})
-        for img_file in selected_images:
-             audit_logger.sign_file(os.path.join(CROP_FOLDER, img_file))
+        # --- NEW: Audit Log ---
+        audit_ledger.log("ENROLL_PERSON", {"name": name, "role": role})
+        # ----------------------
         # ----------------------
 
         # Optional: move used crops to archive
@@ -151,6 +211,14 @@ def edit_person(person_id):
                 filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
                 file.save(filepath)
                 new_image_paths.append(filepath)
+                
+                # Extract new feature for this image and append to features list
+                feat = extract_feature(filepath)
+                if feat is not None:
+                     people_col.update_one(
+                        {"_id": ObjectId(person_id)},
+                        {"$push": {"features": feat.tolist()}}
+                     )
 
         people_col.update_one(
             {"_id": ObjectId(person_id)},
@@ -158,7 +226,7 @@ def edit_person(person_id):
         )
         
         # --- NEW: Audit Log ---
-        audit_logger.log_event("EDIT_PERSON", {"person_id": person_id, "new_name": name, "new_role": role})
+        audit_ledger.log("EDIT_PERSON", {"person_id": person_id, "new_name": name, "new_role": role})
         # ----------------------
         flash("Person updated successfully!", "success")
         return redirect(url_for("people"))
@@ -182,7 +250,7 @@ def delete_person(person_id):
         people_col.delete_one({"_id": ObjectId(person_id)})
         
         # --- NEW: Audit Log ---
-        audit_logger.log_event("DELETE_PERSON", {"person_id": person_id, "name": person.get("name")})
+        audit_ledger.log("DELETE_PERSON", {"person_id": person_id, "name": person.get("name")})
         # ----------------------
         flash("Person deleted successfully!", "success")
     else:
@@ -253,7 +321,7 @@ def export_excel(name):
                           .sort("timestamp", -1))
 
     # --- NEW: Audit Log ---
-    audit_logger.log_event("DATA_EXPORT", {"type": "EXCEL", "subject": name})
+    audit_ledger.log("DATA_EXPORT", {"type": "EXCEL", "subject": name})
     # ----------------------
 
     if not logs:
@@ -329,7 +397,7 @@ def update_access_control():
     )
     
     # --- NEW: Audit Log ---
-    audit_logger.log_event("UPDATE_ACCESS", {"camera": cam_name, "allowed": allowed_people})
+    audit_ledger.log("UPDATE_ACCESS", {"camera": cam_name, "allowed": allowed_people})
     # ----------------------
     flash(f"Access list updated for {cam_name}", "success")
     return redirect(url_for("access_control"))

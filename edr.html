@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EDRStart Research: Interactive Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Custom styles for chart containers to ensure strict responsiveness */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 100%;
+            height: 300px; /* Mobile default */
+            margin: 0 auto;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+        @media (min-width: 1024px) {
+            .chart-container {
+                height: 400px;
+            }
+        }
+        
+        /* Smooth transitions for interactive elements */
+        .tab-content {
+            transition: opacity 0.3s ease-in-out;
+        }
+        .nav-item {
+            transition: all 0.2s ease;
+        }
+        .nav-item:hover {
+            background-color: #f3f4f6;
+        }
+        .nav-item.active {
+            border-bottom: 2px solid #0f766e;
+            color: #0f766e;
+            font-weight: 600;
+        }
+
+        /* Framework Step styling */
+        .step-card {
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .step-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .step-card.active {
+            border-color: #0f766e;
+            background-color: #f0fdfa;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased selection:bg-teal-100 selection:text-teal-900">
+
+    <!-- Application Structure Plan: 
+         1. Header/Nav: Quick access to logical sections (Overview, Landscape, Framework, ROI).
+         2. Hero Section: High-level summary of the "EDRStart" mission and key statistic.
+         3. Threat Landscape (Data Focus): Interactive charts showing why EDR is needed (Attack vectors, Dwell time).
+         4. The EDRStart Framework (Process Focus): A 4-step interactive flow (Assess -> Select -> Deploy -> Operate). User clicks steps to reveal details. This replaces linear text chapters.
+         5. Market Analysis (Comparison Focus): A dynamic comparison tool for EDR vs. Traditional AV.
+         6. Implementation Challenges (Qualitative Focus): Interactive cards highlighting common pitfalls.
+         7. Footer: Credits.
+         
+         Rationale: This structure moves from "Why" (Landscape) to "How" (Framework) to "What to Watch Out For" (Challenges), facilitating a logical learning journey.
+    -->
+
+    <!-- Chosen Palette: "Secure Horizon" - Slate base (professional, tech) with Teal accents (calm, trusted security) and warm Amber warnings. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+
+    <!-- Navigation -->
+    <nav class="sticky top-0 z-50 bg-white/95 backdrop-blur shadow-sm border-b border-slate-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <span class="text-2xl mr-2">🛡️</span>
+                    <span class="font-bold text-xl tracking-tight text-slate-900">EDRStart<span class="text-teal-600">Research</span></span>
+                </div>
+                <div class="hidden md:flex space-x-8 items-center">
+                    <button onclick="scrollToSection('overview')" class="nav-item px-3 py-2 text-sm font-medium text-slate-600">Overview</button>
+                    <button onclick="scrollToSection('landscape')" class="nav-item px-3 py-2 text-sm font-medium text-slate-600">Threat Landscape</button>
+                    <button onclick="scrollToSection('framework')" class="nav-item px-3 py-2 text-sm font-medium text-slate-600">The Framework</button>
+                    <button onclick="scrollToSection('analysis')" class="nav-item px-3 py-2 text-sm font-medium text-slate-600">Market Analysis</button>
+                </div>
+                <!-- Mobile menu button simplified -->
+                <div class="md:hidden flex items-center">
+                    <button onclick="toggleMobileMenu()" class="text-slate-600 hover:text-slate-900 focus:outline-none">
+                        ☰
+                    </button>
+                </div>
+            </div>
+        </div>
+        <!-- Mobile Nav Panel -->
+        <div id="mobile-menu" class="hidden md:hidden bg-white border-t border-slate-100 p-4 space-y-2">
+            <button onclick="scrollToSection('overview')" class="block w-full text-left px-3 py-2 text-base font-medium text-slate-600 hover:bg-slate-50 rounded-md">Overview</button>
+            <button onclick="scrollToSection('landscape')" class="block w-full text-left px-3 py-2 text-base font-medium text-slate-600 hover:bg-slate-50 rounded-md">Threat Landscape</button>
+            <button onclick="scrollToSection('framework')" class="block w-full text-left px-3 py-2 text-base font-medium text-slate-600 hover:bg-slate-50 rounded-md">The Framework</button>
+            <button onclick="scrollToSection('analysis')" class="block w-full text-left px-3 py-2 text-base font-medium text-slate-600 hover:bg-slate-50 rounded-md">Market Analysis</button>
+        </div>
+    </nav>
+
+    <!-- Hero / Overview Section -->
+    <section id="overview" class="pt-12 pb-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+        <div class="text-center max-w-3xl mx-auto mb-12">
+            <h1 class="text-4xl font-extrabold text-slate-900 tracking-tight sm:text-5xl mb-4">
+                The State of Endpoint Security
+            </h1>
+            <p class="text-lg text-slate-600 leading-relaxed">
+                The <strong>EDRStart Research Report</strong> analyzes the shift from passive antivirus to active Endpoint Detection and Response. 
+                Our findings indicate that <span class="text-teal-700 font-bold">organization-wide visibility</span> is no longer a luxury, but a survival requirement.
+            </p>
+        </div>
+
+        <!-- Key Metrics Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:border-teal-200 transition-colors">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wider">Adoption Rate</h3>
+                    <span class="text-teal-500 bg-teal-50 px-2 py-1 rounded text-xs font-bold">+15% YoY</span>
+                </div>
+                <div class="text-4xl font-bold text-slate-800 mb-2">68%</div>
+                <p class="text-sm text-slate-600">Of SMEs have deployed some form of EDR solution by Q4 2024.</p>
+            </div>
+            
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:border-teal-200 transition-colors">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wider">Mean Time to Detect</h3>
+                    <span class="text-amber-500 bg-amber-50 px-2 py-1 rounded text-xs font-bold">Warning</span>
+                </div>
+                <div class="text-4xl font-bold text-slate-800 mb-2">21 Days</div>
+                <p class="text-sm text-slate-600">Average time an attacker resides in a network without EDR.</p>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:border-teal-200 transition-colors">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wider">Incident Reduction</h3>
+                    <span class="text-teal-500 bg-teal-50 px-2 py-1 rounded text-xs font-bold">Impact</span>
+                </div>
+                <div class="text-4xl font-bold text-slate-800 mb-2">-45%</div>
+                <p class="text-sm text-slate-600">Reduction in severe breaches after full EDR tuning.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Threat Landscape Section -->
+    <!-- Visualization & Content Choices: 
+         - Goal: Show the "Why". Why do we need EDR?
+         - Viz 1: Doughnut Chart (Attack Vectors) - Shows diversity of threats.
+         - Viz 2: Line Chart (Ransomware Trend) - Shows urgency over time.
+         - Interaction: Toggle between data views to keep UI clean.
+    -->
+    <section id="landscape" class="bg-white py-16 border-y border-slate-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+                
+                <!-- Text Context -->
+                <div>
+                    <h2 class="text-3xl font-bold text-slate-900 mb-6">The Evolving Threat Landscape</h2>
+                    <p class="text-slate-600 mb-6 text-lg">
+                        Traditional antivirus relies on signatures—knowing what a "bad file" looks like. However, our research shows that <strong>58% of modern attacks involves no malware files at all</strong> ("Living off the Land"). 
+                    </p>
+                    <p class="text-slate-600 mb-8">
+                        Attackers are now logging in, not breaking in. EDRStart Research has identified a critical shift towards identity-based attacks and script-based execution that bypasses legacy controls.
+                    </p>
+                    
+                    <div class="bg-slate-50 p-6 rounded-lg border-l-4 border-teal-500">
+                        <h4 class="font-bold text-slate-900 mb-2">Key Research Finding</h4>
+                        <p class="text-sm text-slate-700 italic">"The gap between attacker sophistication and defender visibility is widening. Organizations relying solely on prevention controls miss 7 out of 10 lateral movement attempts."</p>
+                    </div>
+                </div>
+
+                <!-- Visualization Column -->
+                <div class="bg-slate-50 rounded-xl p-6 border border-slate-200 shadow-sm">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="font-semibold text-slate-800" id="chart-title">Attack Vector Distribution (2024)</h3>
+                        <select id="chart-selector" onchange="updateLandscapeChart()" class="text-sm border-slate-300 rounded-md shadow-sm focus:border-teal-500 focus:ring-teal-500 bg-white py-1 px-3">
+                            <option value="vectors">By Vector</option>
+                            <option value="trends">Ransomware Growth</option>
+                        </select>
+                    </div>
+                    
+                    <div class="chart-container">
+                        <canvas id="landscapeChart"></canvas>
+                    </div>
+                    <p id="chart-caption" class="text-xs text-slate-500 text-center mt-4">Data Source: EDRStart Global Telemetry Report 2024</p>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+    <!-- The EDRStart Framework Section -->
+    <!-- Visualization & Content Choices:
+         - Goal: Explain the "How". The core methodology of the report.
+         - Viz: Interactive Process Diagram. Instead of a static image, we use HTML/CSS buttons that act as steps.
+         - Interaction: Clicking a step updates the description, checklist, and key outcome below. 
+         - Rationale: Users learn better by stepping through the process themselves.
+    -->
+    <section id="framework" class="py-16 bg-slate-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl font-bold text-slate-900">The EDRStart Implementation Framework</h2>
+                <p class="mt-4 text-slate-600 max-w-2xl mx-auto">
+                    A four-phase methodology derived from successful deployments at 200+ organizations. Click through the phases to explore the roadmap.
+                </p>
+            </div>
+
+            <!-- Interactive Stepper -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div onclick="selectFrameworkStep(0)" id="step-0" class="step-card active bg-white p-4 rounded-lg border-2 border-teal-500 text-center relative">
+                    <div class="text-2xl mb-2">🔍</div>
+                    <div class="font-bold text-slate-900">1. Assess</div>
+                    <div class="text-xs text-slate-500">Gaps & Assets</div>
+                </div>
+                <div onclick="selectFrameworkStep(1)" id="step-1" class="step-card bg-white p-4 rounded-lg border border-slate-200 text-center relative">
+                    <div class="text-2xl mb-2">⚖️</div>
+                    <div class="font-bold text-slate-900">2. Select</div>
+                    <div class="text-xs text-slate-500">Vendor & Arch</div>
+                </div>
+                <div onclick="selectFrameworkStep(2)" id="step-2" class="step-card bg-white p-4 rounded-lg border border-slate-200 text-center relative">
+                    <div class="text-2xl mb-2">🚀</div>
+                    <div class="font-bold text-slate-900">3. Deploy</div>
+                    <div class="text-xs text-slate-500">Pilot to Prod</div>
+                </div>
+                <div onclick="selectFrameworkStep(3)" id="step-3" class="step-card bg-white p-4 rounded-lg border border-slate-200 text-center relative">
+                    <div class="text-2xl mb-2">⚙️</div>
+                    <div class="font-bold text-slate-900">4. Tune</div>
+                    <div class="text-xs text-slate-500">Policies & Ops</div>
+                </div>
+            </div>
+
+            <!-- Dynamic Content Area -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="grid grid-cols-1 md:grid-cols-3">
+                    <!-- Detail Column -->
+                    <div class="p-8 md:col-span-2">
+                        <h3 id="fw-title" class="text-2xl font-bold text-slate-900 mb-4">Phase 1: Assess & Inventory</h3>
+                        <p id="fw-desc" class="text-slate-600 mb-6 leading-relaxed">
+                            Before purchasing tools, organizations must understand what they are protecting. The Assessment phase involves mapping the digital terrain. Blind spots in asset inventory are the primary cause of failed EDR deployments.
+                        </p>
+                        
+                        <h4 class="font-semibold text-slate-800 mb-3">Critical Actions:</h4>
+                        <ul id="fw-actions" class="space-y-3 mb-6">
+                            <li class="flex items-start">
+                                <span class="text-teal-500 mr-2">✓</span>
+                                <span class="text-slate-600">Conduct a full endpoint inventory (Workstations, Servers, BYOD).</span>
+                            </li>
+                            <li class="flex items-start">
+                                <span class="text-teal-500 mr-2">✓</span>
+                                <span class="text-slate-600">Identify legacy OS versions incompatible with modern agents.</span>
+                            </li>
+                            <li class="flex items-start">
+                                <span class="text-teal-500 mr-2">✓</span>
+                                <span class="text-slate-600">Define data privacy requirements for telemetry collection.</span>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <!-- Insight Column -->
+                    <div class="bg-slate-50 p-8 border-t md:border-t-0 md:border-l border-slate-100 flex flex-col justify-center">
+                        <div class="mb-6">
+                            <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Success Metric</span>
+                            <div id="fw-metric" class="text-3xl font-bold text-teal-600 mt-1">95% Coverage</div>
+                            <p id="fw-metric-desc" class="text-sm text-slate-500 mt-1">Target for managed asset visibility.</p>
+                        </div>
+                        
+                        <div>
+                            <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Common Pitfall</span>
+                            <p id="fw-pitfall" class="text-sm text-slate-700 mt-2 font-medium">"Buying tools before knowing how many endpoints exist, leading to licensing shortages."</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Market Analysis Section -->
+    <section id="analysis" class="py-16 bg-white border-t border-slate-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="mb-10">
+                <h2 class="text-3xl font-bold text-slate-900 mb-4">Market Analysis: ROI & Efficacy</h2>
+                <p class="text-slate-600 max-w-3xl">
+                    Is the investment worth it? We compared the efficacy of standard antivirus solutions against modern EDR platforms across 50 simulated attack scenarios.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                <!-- Chart Container -->
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div class="chart-container">
+                        <canvas id="comparisonChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Interactive ROI Calculator (Simulated) -->
+                <div class="bg-slate-50 rounded-xl p-8 border border-slate-200">
+                    <h3 class="text-xl font-bold text-slate-900 mb-6">Estimated Cost of Inaction</h3>
+                    <p class="text-sm text-slate-500 mb-6">Based on average incident response costs for a 500-node organization.</p>
+
+                    <div class="space-y-6">
+                        <div>
+                            <div class="flex justify-between mb-2">
+                                <label class="text-sm font-medium text-slate-700">Number of Endpoints</label>
+                                <span id="node-val" class="text-sm font-bold text-teal-700">500</span>
+                            </div>
+                            <input type="range" min="100" max="5000" value="500" step="100" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-600" id="node-slider" oninput="updateROI()">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+                            <div>
+                                <div class="text-xs text-slate-500 uppercase">Avg. Breach Cost (No EDR)</div>
+                                <div id="cost-no-edr" class="text-2xl font-bold text-red-500 mt-1">$145,000</div>
+                            </div>
+                            <div>
+                                <div class="text-xs text-slate-500 uppercase">Avg. Breach Cost (With EDR)</div>
+                                <div id="cost-with-edr" class="text-2xl font-bold text-teal-600 mt-1">$45,000</div>
+                            </div>
+                        </div>
+
+                        <div class="bg-teal-900 text-white p-4 rounded-lg mt-4">
+                            <div class="text-xs opacity-75 uppercase">Projected Savings</div>
+                            <div id="savings-val" class="text-3xl font-bold">$100,000</div>
+                            <div class="text-xs opacity-75 mt-1">Per significant incident</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 text-slate-300 py-12 mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div>
+                <h3 class="text-white text-lg font-bold mb-4">EDRStart Research</h3>
+                <p class="text-sm text-slate-400">
+                    Dedicated to demystifying cybersecurity operations for the modern enterprise.
+                </p>
+            </div>
+            <div>
+                <h4 class="text-white font-semibold mb-4">Resources</h4>
+                <ul class="space-y-2 text-sm">
+                    <li><a href="#" class="hover:text-white">Methodology</a></li>
+                    <li><a href="#" class="hover:text-white">Vendor Matrix</a></li>
+                    <li><a href="#" class="hover:text-white">API Documentation</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4 class="text-white font-semibold mb-4">Legal</h4>
+                <ul class="space-y-2 text-sm">
+                    <li><a href="#" class="hover:text-white">Privacy Policy</a></li>
+                    <li><a href="#" class="hover:text-white">Terms of Use</a></li>
+                    <li>&copy; 2026 EDRStart Research Group</li>
+                </ul>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // --- State Management ---
+        const state = {
+            currentFrameworkStep: 0,
+            chartMode: 'vectors', // 'vectors' or 'trends'
+            endpoints: 500
+        };
+
+        // --- Data Storage (from Report) ---
+        const reportData = {
+            landscape: {
+                vectors: {
+                    labels: ['Phishing (Credential)', 'Exploited Vulns', 'Brute Force', 'Supply Chain', 'Removable Media'],
+                    data: [45, 28, 15, 8, 4]
+                },
+                trends: {
+                    labels: ['2020', '2021', '2022', '2023', '2024'],
+                    data: [100, 145, 210, 280, 315] // Index based growth
+                }
+            },
+            comparison: {
+                labels: ['Known Malware', 'Zero-Day Executables', 'Powershell Scripts', 'Memory Injection', 'Ransomware Rollback'],
+                legacyAV: [98, 45, 12, 5, 0],
+                modernEDR: [99, 92, 88, 85, 76]
+            },
+            framework: [
+                {
+                    title: "Phase 1: Assess & Inventory",
+                    desc: "Before purchasing tools, organizations must understand what they are protecting. The Assessment phase involves mapping the digital terrain. Blind spots in asset inventory are the primary cause of failed EDR deployments.",
+                    actions: [
+                        "Conduct a full endpoint inventory (Workstations, Servers, BYOD).",
+                        "Identify legacy OS versions incompatible with modern agents.",
+                        "Define data privacy requirements for telemetry collection."
+                    ],
+                    metric: "95% Coverage",
+                    metricDesc: "Target for managed asset visibility.",
+                    pitfall: "Buying tools before knowing how many endpoints exist, leading to licensing shortages."
+                },
+                {
+                    title: "Phase 2: Select & Evaluate",
+                    desc: "Not all EDRs are equal. This phase focuses on matching tool capabilities with team maturity. A complex tool in the hands of a junior team creates noise, not security.",
+                    actions: [
+                        "Determine Managed (MDR) vs. In-house management requirements.",
+                        "Evaluate cloud-native vs. on-premise architecture needs.",
+                        "Test 'prevention' capabilities to reduce alert volume."
+                    ],
+                    metric: "< 5% CPU",
+                    metricDesc: "Maximum acceptable agent performance impact.",
+                    pitfall: "Overweighting 'cool features' over usability and support quality."
+                },
+                {
+                    title: "Phase 3: Deploy & Integrate",
+                    desc: "Rolling out agents requires a phased approach to prevent business disruption. Integration with SIEM and ticketing systems ensures alerts become actions.",
+                    actions: [
+                        "Execute Pilot deployment (IT & High-risk users).",
+                        "Configure exclusions for critical business applications.",
+                        "Verify telemetry flow to central dashboard."
+                    ],
+                    metric: "100% Health",
+                    metricDesc: "Agents reporting in within 1 hour of install.",
+                    pitfall: "Deploying 'blocking' mode immediately without a learning period, crashing apps."
+                },
+                {
+                    title: "Phase 4: Tune & Operate",
+                    desc: "EDR is not 'set and forget'. The operational phase involves continuous tuning of detection logic to reduce false positives and hunting for threats that bypass automation.",
+                    actions: [
+                        "Weekly review of top 10 noisiest alerts.",
+                        "Tune baseline policies for different user groups (Dev vs. HR).",
+                        "Conduct quarterly purple team exercises."
+                    ],
+                    metric: "10:1 Ratio",
+                    metricDesc: "Target ratio of False Positives to True Positives.",
+                    pitfall: "Alert fatigue causing analysts to ignore critical warnings."
+                }
+            ]
+        };
+
+        // --- Chart Initialization ---
+        let landscapeChartInstance = null;
+        let comparisonChartInstance = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initLandscapeChart();
+            initComparisonChart();
+            updateROI(); // Init calculator
+        });
+
+        // --- Chart Functions ---
+
+        function initLandscapeChart() {
+            const ctx = document.getElementById('landscapeChart').getContext('2d');
+            
+            // Default config for Doughnut (Vectors)
+            const config = {
+                type: 'doughnut',
+                data: {
+                    labels: reportData.landscape.vectors.labels,
+                    datasets: [{
+                        label: 'Incidents (%)',
+                        data: reportData.landscape.vectors.data,
+                        backgroundColor: [
+                            '#0f766e', // Teal 700
+                            '#14b8a6', // Teal 500
+                            '#5eead4', // Teal 300
+                            '#cbd5e1', // Slate 300
+                            '#94a3b8'  // Slate 400
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { usePointStyle: true, font: { family: 'sans-serif' } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return ` ${context.label}: ${context.raw}%`;
+                                }
+                            }
+                        }
+                    },
+                    layout: { padding: 20 }
+                }
+            };
+            
+            landscapeChartInstance = new Chart(ctx, config);
+        }
+
+        function updateLandscapeChart() {
+            const selector = document.getElementById('chart-selector');
+            const title = document.getElementById('chart-title');
+            const mode = selector.value;
+
+            if (mode === 'vectors') {
+                title.innerText = "Attack Vector Distribution (2024)";
+                landscapeChartInstance.config.type = 'doughnut';
+                landscapeChartInstance.data.labels = reportData.landscape.vectors.labels;
+                landscapeChartInstance.data.datasets = [{
+                    label: 'Incidents (%)',
+                    data: reportData.landscape.vectors.data,
+                    backgroundColor: ['#0f766e', '#14b8a6', '#5eead4', '#cbd5e1', '#94a3b8'],
+                    borderColor: '#ffffff',
+                    borderWidth: 2,
+                    fill: false
+                }];
+                landscapeChartInstance.options.scales = {}; // Remove scales for doughnut
+            } else {
+                title.innerText = "Ransomware Incident Index (5-Year)";
+                landscapeChartInstance.config.type = 'line';
+                landscapeChartInstance.data.labels = reportData.landscape.trends.labels;
+                landscapeChartInstance.data.datasets = [{
+                    label: 'Growth Index (Base 100)',
+                    data: reportData.landscape.trends.data,
+                    borderColor: '#f59e0b', // Amber
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    borderWidth: 3,
+                    tension: 0.3,
+                    fill: true,
+                    pointBackgroundColor: '#ffffff',
+                    pointBorderColor: '#f59e0b',
+                    pointRadius: 5
+                }];
+                landscapeChartInstance.options.scales = {
+                    y: { beginAtZero: false, grid: { color: '#f1f5f9' } },
+                    x: { grid: { display: false } }
+                };
+            }
+            landscapeChartInstance.update();
+        }
+
+        function initComparisonChart() {
+            const ctx = document.getElementById('comparisonChart').getContext('2d');
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: reportData.comparison.labels,
+                    datasets: [
+                        {
+                            label: 'Legacy Antivirus',
+                            data: reportData.comparison.legacyAV,
+                            backgroundColor: '#cbd5e1', // Slate 300
+                            borderRadius: 4
+                        },
+                        {
+                            label: 'Modern EDR',
+                            data: reportData.comparison.modernEDR,
+                            backgroundColor: '#0f766e', // Teal 700
+                            borderRadius: 4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        title: { display: true, text: 'Detection Efficacy Rate (%)' }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: { color: '#f1f5f9' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                callback: function(val, index) {
+                                    // Wrap labels
+                                    const label = this.getLabelForValue(val);
+                                    if (label.length > 15) {
+                                        return label.split(' ');
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- Framework Interaction Logic ---
+        function selectFrameworkStep(index) {
+            state.currentFrameworkStep = index;
+            const data = reportData.framework[index];
+
+            // Update Tabs UI
+            document.querySelectorAll('.step-card').forEach((el, i) => {
+                if (i === index) {
+                    el.classList.add('active', 'border-teal-500', 'bg-teal-50');
+                    el.classList.remove('border-slate-200', 'bg-white');
+                } else {
+                    el.classList.remove('active', 'border-teal-500', 'bg-teal-50');
+                    el.classList.add('border-slate-200', 'bg-white');
+                }
+            });
+
+            // Update Content with simple animation
+            const container = document.querySelector('.tab-content'); // concept selector
+            
+            // Helper to update text safely
+            document.getElementById('fw-title').innerText = data.title;
+            document.getElementById('fw-desc').innerText = data.desc;
+            
+            // Rebuild List
+            const listContainer = document.getElementById('fw-actions');
+            listContainer.innerHTML = '';
+            data.actions.forEach(action => {
+                const li = document.createElement('li');
+                li.className = 'flex items-start';
+                li.innerHTML = `<span class="text-teal-500 mr-2">✓</span><span class="text-slate-600">${action}</span>`;
+                listContainer.appendChild(li);
+            });
+
+            document.getElementById('fw-metric').innerText = data.metric;
+            document.getElementById('fw-metric-desc').innerText = data.metricDesc;
+            document.getElementById('fw-pitfall').innerText = `"${data.pitfall}"`;
+        }
+
+        // --- ROI Calculator Logic ---
+        function updateROI() {
+            const slider = document.getElementById('node-slider');
+            const nodes = parseInt(slider.value);
+            
+            document.getElementById('node-val').innerText = nodes.toLocaleString();
+
+            // Simplified math model from report
+            // Cost per node per breach * risk factor
+            const baseCostPerNodeNoEDR = 290; 
+            const baseCostPerNodeEDR = 90; // Much lower due to early containment
+            
+            const costNo = nodes * baseCostPerNodeNoEDR;
+            const costYes = nodes * baseCostPerNodeEDR;
+            const savings = costNo - costYes;
+
+            document.getElementById('cost-no-edr').innerText = `$${costNo.toLocaleString()}`;
+            document.getElementById('cost-with-edr').innerText = `$${costYes.toLocaleString()}`;
+            document.getElementById('savings-val').innerText = `$${savings.toLocaleString()}`;
+        }
+
+        // --- Navigation Logic ---
+        function scrollToSection(id) {
+            const el = document.getElementById(id);
+            if(el) {
+                const yOffset = -70; // Header height offset
+                const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                window.scrollTo({top: y, behavior: 'smooth'});
+            }
+            // Close mobile menu if open
+            document.getElementById('mobile-menu').classList.add('hidden');
+        }
+
+        function toggleMobileMenu() {
+            const menu = document.getElementById('mobile-menu');
+            menu.classList.toggle('hidden');
+        }
+
+    </script>
+</body>
+</html>
